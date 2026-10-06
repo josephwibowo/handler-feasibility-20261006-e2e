@@ -4,7 +4,7 @@ on:
     inputs:
       operation:
         type: choice
-        options: [check, revise-child]
+        options: [check, revise-child, update-child-base]
         default: check
 permissions:
   contents: write
@@ -33,6 +33,11 @@ jobs:
             printf 'synthetic-b-v2\n' > b.txt
             git add b.txt
             git commit -m 'Synthetic child corrected candidate'
+            git -c credential.helper='!gh auth git-credential' push origin codex/synthetic-b
+          fi
+          if [ "$OPERATION" = update-child-base ]; then
+            git checkout codex/synthetic-b
+            git merge --no-edit origin/main
             git -c credential.helper='!gh auth git-credential' push origin codex/synthetic-b
           fi
           for branch in codex/synthetic-a codex/synthetic-b; do
