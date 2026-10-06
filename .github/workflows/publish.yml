@@ -1,0 +1,39 @@
+name: Synthetic bot publication
+on: workflow_dispatch
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Publish synthetic ordinary chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b codex/synthetic-a
+          printf 'synthetic-a-v1\n' > a.txt
+          git add a.txt
+          git commit -m 'Synthetic parent candidate'
+          A=$(git rev-parse HEAD)
+          git -c credential.helper='!gh auth git-credential' push origin codex/synthetic-a
+          P1=$(gh api "repos/$GH_REPO/pulls" -f title='Synthetic parent' -f head=codex/synthetic-a -f base=main -f body='Disposable synthetic parent. Human review and merge required.' --jq .number)
+          git checkout -b codex/synthetic-b
+          printf 'synthetic-b-v1\n' > b.txt
+          git add b.txt
+          git commit -m 'Synthetic child candidate'
+          B=$(git rev-parse HEAD)
+          git -c credential.helper='!gh auth git-credential' push origin codex/synthetic-b
+          P2=$(gh api "repos/$GH_REPO/pulls" -f title='Synthetic child' -f head=codex/synthetic-b -f base=codex/synthetic-a -f body="Depends on #$P1. Ordinary PR chain; human bottom-up merge required." --jq .number)
+          gh api "repos/$GH_REPO/statuses/$A" -f state=success -f context=synthetic-behavior -f description='Synthetic parent behavior passed'
+          gh api "repos/$GH_REPO/statuses/$B" -f state=failure -f context=synthetic-behavior -f description='Injected synthetic child behavior failure'
+          printf 'Parent #%s child #%s\n' "$P1" "$P2"
