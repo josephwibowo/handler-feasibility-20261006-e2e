@@ -1,39 +1,50 @@
-name: Synthetic bot publication
-on: workflow_dispatch
+name: Synthetic real checks and child revision
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [check, revise-child]
+        default: check
 permissions:
   contents: write
   pull-requests: write
   statuses: write
 jobs:
-  publish:
+  check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Publish synthetic ordinary chain
+          fetch-depth: 0
+      - name: Check exact synthetic candidates
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          OPERATION: ${{ inputs.operation }}
         run: |
           set -eu
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git checkout -b codex/synthetic-a
-          printf 'synthetic-a-v1\n' > a.txt
-          git add a.txt
-          git commit -m 'Synthetic parent candidate'
-          A=$(git rev-parse HEAD)
-          git -c credential.helper='!gh auth git-credential' push origin codex/synthetic-a
-          P1=$(gh api "repos/$GH_REPO/pulls" -f title='Synthetic parent' -f head=codex/synthetic-a -f base=main -f body='Disposable synthetic parent. Human review and merge required.' --jq .number)
-          git checkout -b codex/synthetic-b
-          printf 'synthetic-b-v1\n' > b.txt
-          git add b.txt
-          git commit -m 'Synthetic child candidate'
-          B=$(git rev-parse HEAD)
-          git -c credential.helper='!gh auth git-credential' push origin codex/synthetic-b
-          P2=$(gh api "repos/$GH_REPO/pulls" -f title='Synthetic child' -f head=codex/synthetic-b -f base=codex/synthetic-a -f body="Depends on #$P1. Ordinary PR chain; human bottom-up merge required." --jq .number)
-          gh api "repos/$GH_REPO/statuses/$A" -f state=success -f context=synthetic-behavior -f description='Synthetic parent behavior passed'
-          gh api "repos/$GH_REPO/statuses/$B" -f state=failure -f context=synthetic-behavior -f description='Injected synthetic child behavior failure'
-          printf 'Parent #%s child #%s\n' "$P1" "$P2"
+          if [ "$OPERATION" = revise-child ]; then
+            git checkout codex/synthetic-b
+            printf 'synthetic-b-v2\n' > b.txt
+            git add b.txt
+            git commit -m 'Synthetic child corrected candidate'
+            git -c credential.helper='!gh auth git-credential' push origin codex/synthetic-b
+          fi
+          for branch in codex/synthetic-a codex/synthetic-b; do
+            git checkout "$branch"
+            SHA=$(git rev-parse HEAD)
+            STATUS=success
+            if [ "$branch" = codex/synthetic-a ]; then
+              test "$(cat a.txt)" = synthetic-a-v1 || STATUS=failure
+            else
+              test "$(cat a.txt)" = synthetic-a-v1 || STATUS=failure
+              test "$(cat b.txt)" = synthetic-b-v2 || STATUS=failure
+            fi
+            printf '%s %s actual_behavior=%s\n' "$branch" "$SHA" "$STATUS"
+            gh api "repos/$GH_REPO/statuses/$SHA" -f state="$STATUS" -f context=synthetic-behavior -f description="Actual synthetic file assertion: $STATUS" -f target_url="https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID"
+          done
